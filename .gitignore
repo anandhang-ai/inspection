@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.env
+*.log
+*.local
+.vscode/
+package-lock.json
+frontend/dist/
+backend/node_modules/
+frontend/node_modules/
+gdocs-mcp-server/node_modules/
+gdocs-mcp-server/credentials.json

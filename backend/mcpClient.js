@@ -153,6 +153,100 @@ class PillirFlowClient {
         });
         return result;
     }
+
+    // ---------- Customer Methods ----------
+
+    async getCustomerDetail(customerId) {
+        const result = await this.callTool("execute_function", {
+            function_module_name: "BAPI_CUSTOMER_GETDETAIL2",
+            input_data: {
+                CUSTOMERNO: customerId
+            },
+            expected_output_structure: {
+                CUSTOMERADDRESS: {
+                    NAME: "string",
+                    CITY: "string",
+                    POSTL_CODE: "string",
+                    STREET: "string",
+                    COUNTRY: "string",
+                    TELEPHONE: "string"
+                },
+                CUSTOMERGENERALDETAIL: {
+                    LANGU: "string",
+                    CURRENCY: "string"
+                },
+                RETURN: {
+                    TYPE: "string",
+                    MESSAGE: "string"
+                }
+            }
+        });
+        return result;
+    }
+
+    async saveCustomer(customerData) {
+        const isUpdate = !!customerData.CUSTOMERNO && customerData.CUSTOMERNO !== "";
+        const functionName = isUpdate ? "BAPI_CUSTOMER_CHANGEFROMDATA1" : "BAPI_CUSTOMER_CREATEFROMDATA1";
+
+        const inputData = {
+            CUSTOMERNO: customerData.CUSTOMERNO,
+            PI_PERSONALDATA: {
+                FIRSTNAME: customerData.FIRSTNAME,
+                LASTNAME: customerData.LASTNAME,
+                CITY: customerData.CITY,
+                POSTL_CODE: customerData.POSTL_CODE,
+                STREET: customerData.STREET,
+                COUNTRY: customerData.COUNTRY || "US",
+                LANGU: "E",
+                LANGUAGE: "E",
+                LANGU_P: "E",
+                LANGU_ISO: "EN",
+                LANG: "E",
+                CURRENCY: "USD",
+                CURRENCY_ISO: "USD"
+            }
+        };
+
+        if (isUpdate) {
+            // Update requires a corresponding "X" structure to tell SAP which fields have changed
+            inputData.PI_PERSONALDATAX = {
+                FIRSTNAME: "X",
+                LASTNAME: "X",
+                CITY: "X",
+                POSTL_CODE: "X",
+                STREET: "X",
+                COUNTRY: "X",
+                LANGU: "X",
+                LANGUAGE: "X",
+                LANGU_P: "X",
+                LANGU_ISO: "X",
+                LANG: "X",
+                CURRENCY: "X",
+                CURRENCY_ISO: "X"
+            };
+        } else {
+            // Create requires reference data
+            inputData.PI_COPYREFERENCE = {
+                REF_CUSTMR: "0000000001", // Corrected field name
+                SALESORG: "1000",
+                DISTR_CHAN: "10",
+                DIVISION: "00"
+            };
+        }
+
+        const result = await this.callTool("execute_function", {
+            function_module_name: functionName,
+            input_data: inputData,
+            expected_output_structure: {
+                CUSTOMERNO: "string",
+                RETURN: {
+                    TYPE: "string",
+                    MESSAGE: "string"
+                }
+            }
+        });
+        return result;
+    }
 }
 
 module.exports = new PillirFlowClient();

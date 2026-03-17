@@ -117,6 +117,15 @@ const NavBar = () => {
                             >
                                 Materials
                             </Button>
+                            <Button
+                                component={Link}
+                                to="/customers"
+                                startIcon={<PersonIcon />}
+                                color="inherit"
+                                sx={{ borderRadius: "8px", px: 2 }}
+                            >
+                                Customers
+                            </Button>
                         </Box>
                     )}
                 </Box>

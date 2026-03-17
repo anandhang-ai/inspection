@@ -225,4 +225,57 @@ app.delete('/api/materials/:id', authenticateToken, authorizeRoles('admin', 'sup
     }
 });
 
+// ---------- Customer Routes (Integrated with Pillir Flow SAP) ----------
+
+// Fetch customer details from SAP
+app.get('/api/customers/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await mcpClient.getCustomerDetail(id);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Customer Detail Error:', err);
+        res.status(500).json({ message: 'Error communicating with SAP server' });
+    }
+});
+
+// Create Customer
+app.post('/api/customers', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    try {
+        const result = await mcpClient.saveCustomer(req.body);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error during Create', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Customer Create Error:', err);
+        res.status(500).json({ message: 'Error creating customer in SAP' });
+    }
+});
+
+// Update Customer
+app.put('/api/customers/:id', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    const { id } = req.params;
+    const customerData = { ...req.body, CUSTOMERNO: id };
+    try {
+        const result = await mcpClient.saveCustomer(customerData);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error during Update', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Customer Update Error:', err);
+        res.status(500).json({ message: 'Error updating customer in SAP' });
+    }
+});
+
+// Delete Customer (Placeholder - usually flag for deletion in SAP)
+app.delete('/api/customers/:id', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    const { id } = req.params;
+    res.status(501).json({ message: `Delete Customer ${id} not yet implemented - Customers are typically flagged for deletion` });
+});
+
 app.listen(PORT, () => console.log(`Backend listening on port ${PORT}`));

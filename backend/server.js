@@ -1,5 +1,6 @@
 // server.js
 require('dotenv').config();
+const mcpClient = require('./mcpClient');
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
@@ -155,6 +156,72 @@ app.put('/api/inspections/:id', authenticateToken, authorizeRoles('inspector'), 
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+// ---------- Material Routes (Integrated with Pillir Flow SAP) ----------
+
+// Fetch material details from SAP
+app.get('/api/materials/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { plant = '1000' } = req.query;
+
+    try {
+        const result = await mcpClient.getMaterialDetail(id, plant);
+
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error', error: result.result });
+        }
+
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Error:', err);
+        res.status(500).json({ message: 'Error communicating with SAP server' });
+    }
+});
+
+// Create Material (Integrated with BAPI_MATERIAL_SAVEDATA)
+app.post('/api/materials', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    const materialData = req.body;
+    try {
+        const result = await mcpClient.saveMaterial(materialData);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error during Create', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Create Error:', err);
+        res.status(500).json({ message: 'Error creating material in SAP' });
+    }
+});
+
+// Update Material (Integrated with BAPI_MATERIAL_SAVEDATA)
+app.put('/api/materials/:id', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    const { id } = req.params;
+    const materialData = { ...req.body, MATERIAL: id };
+    try {
+        const result = await mcpClient.saveMaterial(materialData);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error during Update', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Update Error:', err);
+        res.status(500).json({ message: 'Error updating material in SAP' });
+    }
+});
+
+// Delete Material (Integrated with BAPI_MATERIAL_SAVEDATA - flag for deletion)
+app.delete('/api/materials/:id', authenticateToken, authorizeRoles('admin', 'supervisor', 'inspector'), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await mcpClient.deleteMaterial(id);
+        if (result.type === "error") {
+            return res.status(400).json({ message: 'SAP Error during Delete', error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error('MCP Delete Error:', err);
+        res.status(500).json({ message: 'Error flagging material for deletion in SAP' });
     }
 });
 

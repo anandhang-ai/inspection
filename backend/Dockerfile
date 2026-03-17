@@ -1,25 +1,18 @@
-# ─── Backend Dockerfile ───
-FROM node:20-alpine AS base
+FROM node:22-alpine
 
 WORKDIR /app
 
-# Install dependencies first (better layer caching)
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+# Copy package files
+COPY package*.json ./
 
-# Copy application source
+# Install dependencies
+RUN npm install
+
+# Copy application source code
 COPY . .
 
-# Create a non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
-
-# Expose the backend port
+# Expose backend port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:5000/api/auth/login || exit 1
-
-# Start the server
-CMD ["node", "server.js"]
+# Start server
+CMD ["npm", "start"]

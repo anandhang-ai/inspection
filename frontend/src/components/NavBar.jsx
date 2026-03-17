@@ -22,6 +22,7 @@ import LogoutIcon from "@mui/icons-material/Logout";
 import PersonIcon from "@mui/icons-material/Person";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import AddIcon from "@mui/icons-material/Add";
+import InventoryIcon from "@mui/icons-material/Inventory";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "./AuthContext";
 import { ThemeContext } from "./ThemeContext";
@@ -107,17 +108,15 @@ const NavBar = () => {
                             >
                                 Dashboard
                             </Button>
-                            {user.role === "inspector" && (
-                                <Button
-                                    component={Link}
-                                    to="/inspection/new"
-                                    startIcon={<AddIcon />}
-                                    color="inherit"
-                                    sx={{ borderRadius: "8px", px: 2 }}
-                                >
-                                    New Inspection
-                                </Button>
-                            )}
+                            <Button
+                                component={Link}
+                                to="/materials"
+                                startIcon={<InventoryIcon />}
+                                color="inherit"
+                                sx={{ borderRadius: "8px", px: 2 }}
+                            >
+                                Materials
+                            </Button>
                         </Box>
                     )}
                 </Box>

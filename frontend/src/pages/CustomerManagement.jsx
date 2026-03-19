@@ -44,7 +44,10 @@ const CustomerManagement = () => {
         STREET: "",
         CITY: "",
         POSTL_CODE: "",
-        COUNTRY: "US"
+        COUNTRY: "US",
+        SALESORG: "1000",
+        DISTR_CHAN: "10",
+        DIVISION: "00"
     });
     const [editMode, setEditMode] = useState(false);
 
@@ -118,7 +121,10 @@ const CustomerManagement = () => {
             STREET: addr,
             CITY: city,
             POSTL_CODE: zip,
-            COUNTRY: country
+            COUNTRY: country,
+            SALESORG: "1000", // Often not returned in GetDetail2
+            DISTR_CHAN: "10",
+            DIVISION: "00"
         });
         setEditMode(true);
         setCreateDialogOpen(true);
@@ -132,7 +138,10 @@ const CustomerManagement = () => {
             STREET: "",
             CITY: "",
             POSTL_CODE: "",
-            COUNTRY: "US"
+            COUNTRY: "US",
+            SALESORG: "1000",
+            DISTR_CHAN: "10",
+            DIVISION: "00"
         });
         setEditMode(false);
         setCreateDialogOpen(true);
@@ -373,6 +382,17 @@ const CustomerManagement = () => {
                 <DialogContent>
                     <Box component="form" sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <Grid container spacing={2}>
+                            <Grid item xs={12}>
+                                <TextField
+                                    label="Customer Number"
+                                    value={formData.CUSTOMERNO}
+                                    onChange={(e) => setFormData({ ...formData, CUSTOMERNO: e.target.value })}
+                                    fullWidth
+                                    placeholder="Leave empty for internal assignment"
+                                    disabled={editMode}
+                                    helperText={editMode ? "Customer IDs are fixed in SAP" : "Optional for some SAP configurations"}
+                                />
+                            </Grid>
                             <Grid item xs={6}>
                                 <TextField
                                     label="First Name"
@@ -418,6 +438,37 @@ const CustomerManagement = () => {
                                     label="Country"
                                     value={formData.COUNTRY}
                                     onChange={(e) => setFormData({ ...formData, COUNTRY: e.target.value })}
+                                    fullWidth
+                                />
+                            </Grid>
+                            <Grid item xs={12}>
+                                <Divider sx={{ my: 1 }}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                                        Sales Area (Copy Reference)
+                                    </Typography>
+                                </Divider>
+                            </Grid>
+                            <Grid item xs={4}>
+                                <TextField
+                                    label="Sales Org"
+                                    value={formData.SALESORG}
+                                    onChange={(e) => setFormData({ ...formData, SALESORG: e.target.value })}
+                                    fullWidth
+                                />
+                            </Grid>
+                            <Grid item xs={4}>
+                                <TextField
+                                    label="Dist Channel"
+                                    value={formData.DISTR_CHAN}
+                                    onChange={(e) => setFormData({ ...formData, DISTR_CHAN: e.target.value })}
+                                    fullWidth
+                                />
+                            </Grid>
+                            <Grid item xs={4}>
+                                <TextField
+                                    label="Division"
+                                    value={formData.DIVISION}
+                                    onChange={(e) => setFormData({ ...formData, DIVISION: e.target.value })}
                                     fullWidth
                                 />
                             </Grid>

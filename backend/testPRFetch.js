@@ -1,4 +1,4 @@
-// getBAPIDetail.js
+// testPRFetch.js
 require('dotenv').config();
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { SSEClientTransport } = require("@modelcontextprotocol/sdk/client/sse.js");
@@ -23,33 +23,37 @@ async function main() {
         eventSourceConstructor: EventSource
     });
 
-    const client = new Client({ name: "BAPIInspector", version: "1.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "PRTester", version: "1.0.0" }, { capabilities: {} });
     await client.connect(transport);
 
-    console.log("Searching for Purchase Requisition BAPIs...");
+    console.log("Fetching Purchase Requisition Items...");
     const result = await client.callTool({
-        name: "search_sap",
+        name: "execute_function",
         arguments: {
-            name: "Purchase Requisition Search",
-            description: "Find BAPIs for Purchase Requisitions",
-            apis: [{
-                name: "MM",
-                description: "Materials Management",
-                system_type: "SAP_ECC",
-                functions: [
-                    { name: "BAPI_REQUISITION*", description: "Requisition BAPIs", rfc: true },
-                    { name: "BAPI_PR*", description: "PR BAPIs", rfc: true }
-                ]
-            }]
+            function_module_name: "BAPI_REQUISITION_GETITEMSBYITEM",
+            input_data: {
+                MATERIAL: "100-100", // Using a material to find related PRs
+                // Or leave empty if listing all
+            },
+            expected_output_structure: {
+                REQUISITION_ITEMS: [
+                    {
+                        PREQ_NO: "string",
+                        PREQ_ITEM: "string",
+                        MATERIAL: "string",
+                        PLANT: "string",
+                        QUANTITY: "string",
+                        SHORT_TEXT: "string"
+                    }
+                ],
+                RETURN: {
+                    TYPE: "string",
+                    MESSAGE: "string"
+                }
+            }
         }
     });
-
-    // Attempt to drill down into the response
-    if (result.content && result.content[0]) {
-        const fs = require('fs');
-        fs.writeFileSync('bapi_detail.json', result.content[0].text);
-        console.log("Wrote details to bapi_detail.json");
-    }
+    console.log("RESULT:", JSON.stringify(result, null, 2));
     process.exit(0);
 }
 

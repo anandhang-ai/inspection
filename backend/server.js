@@ -278,4 +278,56 @@ app.delete('/api/customers/:id', authenticateToken, authorizeRoles('admin', 'sup
     res.status(501).json({ message: `Delete Customer ${id} not yet implemented - Customers are typically flagged for deletion` });
 });
 
+// Purchase Requisition Routes
+app.get("/api/pr/list", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    const { plant = "1000" } = req.query;
+    try {
+        const result = await mcpClient.listPRsByPlant(plant);
+        res.json(result);
+    } catch (err) {
+        console.error("PR List Route Error:", err);
+        res.status(500).json({ message: "Failed to fetch PR list from SAP." });
+    }
+});
+
+app.get("/api/pr/:id", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    try {
+        const result = await mcpClient.getPRDetails(req.params.id);
+        if (result.type === "error") {
+            return res.status(400).json({ message: "SAP Error", error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error("PR Detail Route Error:", err);
+        res.status(500).json({ message: "Failed to fetch PR from SAP." });
+    }
+});
+
+app.post("/api/pr", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    try {
+        const result = await mcpClient.createPR(req.body);
+        if (result.type === "error") {
+            return res.status(400).json({ message: "SAP Error", error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error("PR Create Route Error:", err);
+        res.status(500).json({ message: "Failed to create PR in SAP." });
+    }
+});
+
+app.post("/api/po/create", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    const { prNumber, prItem } = req.body;
+    try {
+        const result = await mcpClient.createPOFromPR(prNumber, prItem);
+        if (result.type === "error") {
+            return res.status(400).json({ message: "SAP Error", error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error("PO Create Route Error:", err);
+        res.status(500).json({ message: "Failed to create PO in SAP." });
+    }
+});
+
 app.listen(PORT, () => console.log(`Backend listening on port ${PORT}`));

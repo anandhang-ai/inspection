@@ -1,4 +1,4 @@
-// getBAPIDetail.js
+// searchPRBAPIs.js
 require('dotenv').config();
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const { SSEClientTransport } = require("@modelcontextprotocol/sdk/client/sse.js");
@@ -23,7 +23,7 @@ async function main() {
         eventSourceConstructor: EventSource
     });
 
-    const client = new Client({ name: "BAPIInspector", version: "1.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "PRInspector", version: "1.0.0" }, { capabilities: {} });
     await client.connect(transport);
 
     console.log("Searching for Purchase Requisition BAPIs...");
@@ -31,25 +31,20 @@ async function main() {
         name: "search_sap",
         arguments: {
             name: "Purchase Requisition Search",
-            description: "Find BAPIs for Purchase Requisitions",
+            description: "Find PR BAPIs",
             apis: [{
-                name: "MM",
-                description: "Materials Management",
+                name: "PurchaseRequisition",
+                description: "Purchase Requisitions",
                 system_type: "SAP_ECC",
                 functions: [
-                    { name: "BAPI_REQUISITION*", description: "Requisition BAPIs", rfc: true },
-                    { name: "BAPI_PR*", description: "PR BAPIs", rfc: true }
+                    { name: "BAPI_PR_GETLIST", description: "Get PR List", rfc: true },
+                    { name: "BAPI_PR_CREATE", description: "Create PR", rfc: true },
+                    { name: "BAPI_REQUISITION_GETDETAIL", description: "Get PR Detail", rfc: true }
                 ]
             }]
         }
     });
-
-    // Attempt to drill down into the response
-    if (result.content && result.content[0]) {
-        const fs = require('fs');
-        fs.writeFileSync('bapi_detail.json', result.content[0].text);
-        console.log("Wrote details to bapi_detail.json");
-    }
+    console.log("RESULT:", JSON.stringify(result, null, 2));
     process.exit(0);
 }
 

@@ -23,6 +23,7 @@ import PersonIcon from "@mui/icons-material/Person";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import AddIcon from "@mui/icons-material/Add";
 import InventoryIcon from "@mui/icons-material/Inventory";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "./AuthContext";
 import { ThemeContext } from "./ThemeContext";
@@ -125,6 +126,15 @@ const NavBar = () => {
                                 sx={{ borderRadius: "8px", px: 2 }}
                             >
                                 Customers
+                            </Button>
+                            <Button
+                                component={Link}
+                                to="/pr"
+                                startIcon={<ShoppingCartIcon />}
+                                color="inherit"
+                                sx={{ borderRadius: "8px", px: 2 }}
+                            >
+                                Requisitions
                             </Button>
                         </Box>
                     )}

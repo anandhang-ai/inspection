@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import InspectionForm from "./pages/InspectionForm";
 import MaterialManagement from "./pages/MaterialManagement";
 import CustomerManagement from "./pages/CustomerManagement";
+import PurchaseRequisition from "./pages/PurchaseRequisition";
 import NavBar from "./components/NavBar";
 
 import { CustomThemeProvider } from "./components/ThemeContext";
@@ -28,6 +29,7 @@ const App = () => {
                             <Route path="/inspection/edit/:id" element={<InspectionForm />} />
                             <Route path="/materials" element={<MaterialManagement />} />
                             <Route path="/customers" element={<CustomerManagement />} />
+                            <Route path="/pr" element={<PurchaseRequisition />} />
                         </Route>
                         <Route path="*" element={<Navigate to="/login" replace />} />
                     </Routes>

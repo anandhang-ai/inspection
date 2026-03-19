@@ -228,9 +228,9 @@ class PillirFlowClient {
             // Create requires reference data
             inputData.PI_COPYREFERENCE = {
                 REF_CUSTMR: "0000000001", // Corrected field name
-                SALESORG: "1000",
-                DISTR_CHAN: "10",
-                DIVISION: "00"
+                SALESORG: customerData.SALESORG || "1000",
+                DISTR_CHAN: customerData.DISTR_CHAN || "10",
+                DIVISION: customerData.DIVISION || "00"
             };
         }
 
@@ -245,6 +245,243 @@ class PillirFlowClient {
                 }
             }
         });
+        return result;
+    }
+    async getPRDetails(prNumber) {
+        // Pad with leading zeros to 10 characters for SAP
+        const paddedPR = prNumber.padStart(10, '0');
+
+        const result = await this.callTool("execute_function", {
+            function_module_name: "BAPI_REQUISITION_GETDETAIL",
+            input_data: {
+                NUMBER: paddedPR
+            },
+            expected_output_structure: {
+                REQUISITION_ITEMS: [
+                    {
+                        PREQ_NO: "string",
+                        PREQ_ITEM: "string",
+                        MATERIAL: "string",
+                        PLANT: "string",
+                        QUANTITY: "string",
+                        SHORT_TEXT: "string"
+                    }
+                ],
+                RETURN: [
+                    {
+                        TYPE: "string",
+                        MESSAGE: "string"
+                    }
+                ]
+            }
+        });
+
+        // Check for SAP-level errors in the result
+        if (result.type === "result" && result.result?.RETURN) {
+            const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
+            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
+            if (error) {
+                return {
+                    type: "error",
+                    result: error.MESSAGE
+                };
+            }
+        }
+
+        return result;
+    }
+
+    async createPR(prData) {
+        console.log("Creating PR with data:", JSON.stringify(prData, null, 2));
+        const payload = {
+            REQUISITION_ITEMS: prData.items.map((item, index) => ({
+                PREQ_ITEM: "00010",
+                DOC_TYPE: "NB",
+                PUR_GROUP: "001",
+                MATERIAL: item.MATERIAL || "",
+                PLANT: item.PLANT || "",
+                QUANTITY: (item.QUANTITY || 1).toString(),
+                PREQ_PRICE: (item.PRICE || 0).toString(),
+                CURRENCY: "USD",
+                ACCTASSCAT: item.ACCTASSCAT || "",
+                ITEM_CAT: "0", // Standard
+                DELIV_DATE: item.DELIV_DATE ? item.DELIV_DATE.split('-').reverse().join('.') : "",
+                PREQ_DATE: new Date().toLocaleDateString('de-DE'), // DD.MM.YYYY
+                DEL_DATCAT: "1" // 1 = Day format
+            })),
+            REQUISITION_ACCOUNT_ASSIGNMENT: prData.items.filter(item => item.ACCTASSCAT).map((item, index) => ({
+                PREQ_ITEM: "00010",
+                SERIAL_NO: "01",
+                COSTCENTER: item.COSTCENTER || ""
+            }))
+        };
+        console.log("SAP Payload:", JSON.stringify(payload, null, 2));
+
+        const result = await this.callTool("execute_function", {
+            function_module_name: "BAPI_REQUISITION_CREATE",
+            input_data: payload,
+            expected_output_structure: {
+                NUMBER: "string",
+                RETURN: [
+                    {
+                        TYPE: "string",
+                        MESSAGE: "string"
+                    }
+                ]
+            }
+        });
+
+        // Check for SAP-level errors in the result
+        if (result.type === "result" && result.result?.RETURN) {
+            const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
+            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
+            if (error) {
+                return {
+                    type: "error",
+                    result: error.MESSAGE
+                };
+            }
+        }
+
+        return result;
+    }
+
+    async listPRsByPlant(plant) {
+        console.log(`Listing PRs for plant: ${plant}`);
+        const result = await this.callTool("execute_function", {
+            function_module_name: "RFC_READ_TABLE",
+            input_data: {
+                QUERY_TABLE: "EBAN",
+                DELIMITER: "|",
+                OPTIONS: [
+                    { TEXT: `WERKS = '${plant.toUpperCase().trim()}'` }
+                ],
+                FIELDS: [
+                    { FIELDNAME: "BANFN" }, // PR Number
+                    { FIELDNAME: "BNFPO" }, // Item Number
+                    { FIELDNAME: "TXZ01" }, // Short Text
+                    { FIELDNAME: "MATNR" }, // Material
+                    { FIELDNAME: "MENGE" }, // Quantity
+                    { FIELDNAME: "BADAT" }  // Requisition Date
+                ]
+            },
+            expected_output_structure: {
+                DATA: [
+                    { WA: "string" }
+                ]
+            }
+        });
+
+        console.log("SAP List Result:", JSON.stringify(result, null, 2));
+
+        if (result.type === "result" && result.result?.DATA) {
+            result.result = result.result.DATA.map(row => {
+                const parts = row.WA.split('|');
+                return {
+                    BANFN: parts[0]?.trim(),
+                    BNFPO: parts[1]?.trim(),
+                    TXZ01: parts[2]?.trim(),
+                    MATNR: parts[3]?.trim(),
+                    MENGE: parts[4]?.trim(),
+                    BADAT: parts[5]?.trim()
+                };
+            }).filter(pr => pr.BANFN);
+        }
+
+        return result;
+    }
+
+    async createPOFromPR(prNumber, prItem) {
+        // Pad with leading zeros
+        const paddedPR = prNumber.padStart(10, '0');
+        const paddedItem = prItem.padStart(5, '0');
+
+        console.log(`Creating PO from PR: ${paddedPR}, Item: ${paddedItem}`);
+
+        const payload = {
+            POHEADER: {
+                COMP_CODE: "1000",
+                DOC_TYPE: "NB",
+                VENDOR: "0000100000", // Default vendor
+                PURCH_ORG: "1000",
+                PUR_GROUP: "001",
+                CURRENCY: "USD"
+            },
+            POHEADERX: {
+                COMP_CODE: "X",
+                DOC_TYPE: "X",
+                VENDOR: "X",
+                PURCH_ORG: "X",
+                PUR_GROUP: "X",
+                CURRENCY: "X"
+            },
+            POITEM: [
+                {
+                    PO_ITEM: "00010",
+                    PREQ_NO: paddedPR,
+                    PREQ_ITEM: paddedItem
+                }
+            ],
+            POITEMX: [
+                {
+                    PO_ITEM: "00010",
+                    PO_ITEMX: "X",
+                    PREQ_NO: "X",
+                    PREQ_ITEM: "X"
+                }
+            ],
+            POSCHEDULE: [
+                {
+                    PO_ITEM: "00010",
+                    SCHED_LINE: "0001",
+                    PREQ_NO: paddedPR,
+                    PREQ_ITEM: paddedItem
+                }
+            ],
+            POSCHEDULEX: [
+                {
+                    PO_ITEM: "00010",
+                    SCHED_LINE: "0001",
+                    PO_ITEMX: "X",
+                    SCHED_LINEX: "X",
+                    PREQ_NO: "X",
+                    PREQ_ITEM: "X"
+                }
+            ]
+        };
+
+        const result = await this.callTool("execute_function", {
+            function_module_name: "BAPI_PO_CREATE1",
+            input_data: payload,
+            expected_output_structure: {
+                EXPPURCHASEORDER: "string",
+                RETURN: [
+                    {
+                        TYPE: "string",
+                        MESSAGE: "string"
+                    }
+                ]
+            }
+        });
+
+        if (result.type === "result" && result.result?.RETURN) {
+            const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
+            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
+            if (error) {
+                return {
+                    type: "error",
+                    result: error.MESSAGE
+                };
+            }
+
+            // Success - commit change
+            await this.callTool("execute_function", {
+                function_module_name: "BAPI_TRANSACTION_COMMIT",
+                input_data: { WAIT: "X" },
+                expected_output_structure: { RETURN: {} }
+            });
+        }
+
         return result;
     }
 }

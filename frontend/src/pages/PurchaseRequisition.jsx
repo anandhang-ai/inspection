@@ -41,6 +41,7 @@ const PurchaseRequisition = () => {
     const [prData, setPrData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(null);
     const [createDialogOpen, setCreateDialogOpen] = useState(false);
     const [newItem, setNewItem] = useState({
         MATERIAL: "100-100",
@@ -52,12 +53,76 @@ const PurchaseRequisition = () => {
         DELIV_DATE: "2026-05-01" // Targeted date for the user's suggestion
     });
 
+    const [poSearchId, setPoSearchId] = useState("");
+    const [poPlantFilter, setPoPlantFilter] = useState("1000");
+    const [poList, setPoList] = useState([]);
+    const [poData, setPoData] = useState(null);
+
+    const handlePOSearch = async (overrideId = null) => {
+        const idToSearch = overrideId || poSearchId;
+        if (!idToSearch) return;
+
+        setLoading(true);
+        setError(null);
+        setPrData(null);
+        setPrList([]);
+        setPoData(null);
+        setPoList([]);
+        try {
+            const token = localStorage.getItem("token");
+            const response = await axios.get(`http://localhost:5000/api/po/${idToSearch}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const data = response.data.type === "result" ? response.data.result : response.data;
+            if (data.POHEADER || data.POITEM) {
+                setPoData(data);
+            } else {
+                setError(data.RETURN?.MESSAGE || "PO not found in SAP.");
+            }
+        } catch (err) {
+            console.error(err);
+            setError(err.response?.data?.error || err.response?.data?.message || "Failed to fetch PO from SAP.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePOListByPlant = async () => {
+        setLoading(true);
+        setError(null);
+        setSuccess(null);
+        setPrData(null);
+        setPrList([]);
+        setPoData(null);
+        setPoList([]);
+        try {
+            const token = localStorage.getItem("token");
+            const response = await axios.get(`http://localhost:5000/api/po/list?plant=${poPlantFilter}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const data = response.data.type === "result" ? response.data.result : response.data;
+            if (Array.isArray(data)) {
+                setPoList(data);
+            } else {
+                setError("No POs found for this plant.");
+            }
+        } catch (err) {
+            console.error(err);
+            setError(err.response?.data?.error || err.response?.data?.message || "Failed to fetch PO list from SAP.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSearch = async (overrideId = null) => {
         const idToSearch = overrideId || searchId;
         if (!idToSearch) return;
 
         setLoading(true);
         setError(null);
+        setSuccess(null);
         setPrData(null);
         setPrList([]);
         try {
@@ -83,6 +148,7 @@ const PurchaseRequisition = () => {
     const handleListByPlant = async () => {
         setLoading(true);
         setError(null);
+        setSuccess(null);
         setPrData(null);
         setPrList([]);
         try {
@@ -149,12 +215,38 @@ const PurchaseRequisition = () => {
 
             // Handle success
             const result = response.data;
-            if (result.type === "result") {
-                const poNumber = result.result?.EXPPURCHASEORDER || result.result;
-                alert(`Purchase Order Created Successfully! PO Number: ${poNumber}`);
-                handleSearch(prNumber);
+            const finalData = result.type === "result" ? result.result : result;
+            console.log("Creation Result:", finalData);
+
+            let poNumber = finalData.EXPPURCHASEORDER || finalData.PURCHASEORDER || finalData.PO_NUMBER || "";
+
+            // Fallback: Parse from Return Message (e.g. "Standard PO created under the number 4500017823")
+            // Handle if finalData itself is an array of messages
+            const potentialReturns = Array.isArray(finalData) ? finalData : (finalData.RETURN || []);
+            const returns = Array.isArray(potentialReturns) ? potentialReturns : [potentialReturns];
+
+            if (!poNumber) {
+                const successMsg = returns.find(r => r.TYPE === 'S' && r.MESSAGE.includes('45'));
+                if (successMsg) {
+                    const match = successMsg.MESSAGE.match(/45\d{8}/);
+                    if (match) poNumber = match[0];
+                }
+            }
+
+            if (!poNumber && typeof finalData === 'string' && finalData.startsWith('45')) {
+                poNumber = finalData;
+            }
+
+            if (poNumber) {
+                setSuccess(`Successfully converted PR ${prNumber} to PO ${poNumber}`);
+                setPrData(null);
+                setPrList([]);
+            } else if (result.type === "result" || finalData.EXPPURCHASEORDER === "") {
+                setSuccess(`Successfully converted PR ${prNumber} to a PO! Check the Purchase Order list for details.`);
+                setPrData(null);
+                setPrList([]);
             } else {
-                setError(result.result?.MESSAGE || "SAP error occurred during PO creation.");
+                setError(finalData.RETURN?.MESSAGE || finalData.error || "SAP error occurred during PO creation.");
             }
         } catch (err) {
             console.error(err);
@@ -192,11 +284,77 @@ const PurchaseRequisition = () => {
             </Box>
 
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-                <Tabs value={tabValue} onChange={(e, newVal) => setTabValue(newVal)} aria-label="PR search tabs">
-                    <Tab label="Search by PR Number" sx={{ fontWeight: 700 }} />
-                    <Tab label="Search by Plant" sx={{ fontWeight: 700 }} />
+                <Tabs value={tabValue} onChange={(e, newVal) => setTabValue(newVal)} aria-label="PR/PO search tabs">
+                    <Tab label="Search PR" sx={{ fontWeight: 700 }} />
+                    <Tab label="PR by Plant" sx={{ fontWeight: 700 }} />
+                    <Tab label="Search PO" sx={{ fontWeight: 700 }} />
+                    <Tab label="PO by Plant" sx={{ fontWeight: 700 }} />
                 </Tabs>
             </Box>
+
+            {tabValue === 2 && (
+                <Paper sx={{ p: 4, borderRadius: '24px', mb: 4 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>Search by Purchase Order Number</Typography>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={9}>
+                            <TextField
+                                fullWidth
+                                label="PO Number"
+                                value={poSearchId}
+                                onChange={(e) => setPoSearchId(e.target.value)}
+                                placeholder="Enter PO Number (e.g. 4500000001)"
+                                variant="outlined"
+                            />
+                        </Grid>
+                        <Grid item xs={3}>
+                            <Button
+                                fullWidth
+                                variant="contained"
+                                color="primary"
+                                size="large"
+                                onClick={() => handlePOSearch()}
+                                disabled={loading}
+                                sx={{ height: '56px', borderRadius: '12px' }}
+                                startIcon={<SearchIcon />}
+                            >
+                                Fetch PO
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </Paper>
+            )}
+
+            {tabValue === 3 && (
+                <Paper sx={{ p: 4, borderRadius: '24px', mb: 4 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 700 }}>List POs by Plant (EKPO Access)</Typography>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid item xs={9}>
+                            <TextField
+                                fullWidth
+                                label="Plant Code"
+                                value={poPlantFilter}
+                                onChange={(e) => setPoPlantFilter(e.target.value)}
+                                placeholder="Enter Plant (e.g. 1000)"
+                                variant="outlined"
+                            />
+                        </Grid>
+                        <Grid item xs={3}>
+                            <Button
+                                fullWidth
+                                variant="outlined"
+                                color="primary"
+                                size="large"
+                                onClick={handlePOListByPlant}
+                                disabled={loading}
+                                sx={{ height: '56px', borderRadius: '12px' }}
+                                startIcon={<SearchIcon />}
+                            >
+                                List POs
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </Paper>
+            )}
 
             {tabValue === 0 && (
                 <Paper sx={{ p: 4, borderRadius: '24px', mb: 4 }}>
@@ -260,7 +418,105 @@ const PurchaseRequisition = () => {
                 </Paper>
             )}
 
+            {success && <Alert severity="success" sx={{ mb: 4, borderRadius: '12px' }}>{success}</Alert>}
             {error && <Alert severity="error" sx={{ mb: 4, borderRadius: '12px' }}>{error}</Alert>}
+
+            {poList.length > 0 && (
+                <Card sx={{ borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', mb: 4 }}>
+                    <CardContent sx={{ p: 4 }}>
+                        <Typography variant="h5" sx={{ mb: 3, fontWeight: 800 }}>
+                            Purchase Orders for Plant {poPlantFilter}
+                        </Typography>
+                        <TableContainer component={Paper} elevation={0} sx={{ borderRadius: '16px', border: `1px solid ${theme.palette.divider}` }}>
+                            <Table>
+                                <TableHead sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
+                                    <TableRow>
+                                        <TableCell sx={{ fontWeight: 700 }}>PO Number</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Item</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Material</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Quantity</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {poList.map((item, index) => (
+                                        <TableRow key={index} hover sx={{ cursor: 'pointer' }} onClick={() => {
+                                            setPoSearchId(item.EBELN);
+                                            handlePOSearch(item.EBELN);
+                                        }}>
+                                            <TableCell>{item.EBELN}</TableCell>
+                                            <TableCell>{item.EBELP}</TableCell>
+                                            <TableCell sx={{ fontWeight: 600 }}>{item.MATNR}</TableCell>
+                                            <TableCell>{item.MENGE}</TableCell>
+                                            <TableCell>{item.TXZ01}</TableCell>
+                                            <TableCell>{item.AEDAT}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    </CardContent>
+                </Card>
+            )}
+
+            {poData && (
+                <Card sx={{ borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', mb: 4 }}>
+                    <CardContent sx={{ p: 4 }}>
+                        <Typography variant="h5" sx={{ mb: 3, fontWeight: 800 }}>
+                            Purchase Order Details: {poSearchId}
+                        </Typography>
+                        {poData.POHEADER && (
+                            <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.primary.main, 0.02), borderRadius: '12px' }}>
+                                <Grid container spacing={2}>
+                                    <Grid item xs={3}>
+                                        <Typography variant="caption" color="text.secondary">Vendor</Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{poData.POHEADER.VENDOR}</Typography>
+                                    </Grid>
+                                    <Grid item xs={3}>
+                                        <Typography variant="caption" color="text.secondary">Doc Type</Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{poData.POHEADER.DOC_TYPE}</Typography>
+                                    </Grid>
+                                    <Grid item xs={3}>
+                                        <Typography variant="caption" color="text.secondary">Purch. Org</Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{poData.POHEADER.PURCH_ORG}</Typography>
+                                    </Grid>
+                                    <Grid item xs={3}>
+                                        <Typography variant="caption" color="text.secondary">Comp Code</Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{poData.POHEADER.COMP_CODE}</Typography>
+                                    </Grid>
+                                </Grid>
+                            </Box>
+                        )}
+                        <TableContainer component={Paper} elevation={0} sx={{ borderRadius: '16px', border: `1px solid ${theme.palette.divider}` }}>
+                            <Table>
+                                <TableHead sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
+                                    <TableRow>
+                                        <TableCell sx={{ fontWeight: 700 }}>Item</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Material</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Plant</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }} align="right">Quantity</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Net Price</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {poData.POITEM && poData.POITEM.map((item, index) => (
+                                        <TableRow key={index}>
+                                            <TableCell>{item.PO_ITEM}</TableCell>
+                                            <TableCell sx={{ fontWeight: 600 }}>{item.MATERIAL}</TableCell>
+                                            <TableCell>{item.PLANT}</TableCell>
+                                            <TableCell align="right">{item.QUANTITY}</TableCell>
+                                            <TableCell>{item.NET_PRICE}</TableCell>
+                                            <TableCell>{item.SHORT_TEXT}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    </CardContent>
+                </Card>
+            )}
 
             {prList.length > 0 && (
                 <Card sx={{ borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.05)', mb: 4 }}>

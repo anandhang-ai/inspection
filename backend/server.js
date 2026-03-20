@@ -316,6 +316,30 @@ app.post("/api/pr", authenticateToken, authorizeRoles("admin", "supervisor", "in
     }
 });
 
+app.get("/api/po/list", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    const { plant } = req.query;
+    try {
+        const result = await mcpClient.listPOsByPlant(plant);
+        res.json(result);
+    } catch (err) {
+        console.error("PO List Route Error:", err);
+        res.status(500).json({ message: "Failed to fetch PO list from SAP." });
+    }
+});
+
+app.get("/api/po/:id", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
+    try {
+        const result = await mcpClient.getPODetails(req.params.id);
+        if (result.type === "error") {
+            return res.status(400).json({ message: "SAP Error", error: result.result });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error("PO Detail Route Error:", err);
+        res.status(500).json({ message: "Failed to fetch PO from SAP." });
+    }
+});
+
 app.post("/api/po/create", authenticateToken, authorizeRoles("admin", "supervisor", "inspector"), async (req, res) => {
     const { prNumber, prItem } = req.body;
     try {

@@ -46,17 +46,49 @@ class PillirFlowClient {
             }
         );
 
-        await this.client.connect(this.transport);
-        console.log("Successfully connected to Pillir Flow MCP Server");
-        return this.client;
+        try {
+            await this.client.connect(this.transport);
+            console.log("Successfully connected to Pillir Flow MCP Server");
+            return this.client;
+        } catch (err) {
+            console.error("Failed to connect to Pillir Flow MCP Server:", err.message);
+            this.client = null;
+            this.transport = null;
+            throw err;
+        }
     }
 
     async callTool(name, args) {
-        const client = await this.connect();
-        const result = await client.callTool({
-            name,
-            arguments: args,
-        });
+        let result;
+        try {
+            const client = await this.connect();
+            result = await client.callTool({
+                name,
+                arguments: args,
+            });
+        } catch (error) {
+            console.error(`MCP Tool Call Error (${name}):`, error.message);
+
+            // If connection closed or EOF, try to reconnect once
+            if (error.message.includes("closed") || error.message.includes("EOF") || error.message.includes("disconnected")) {
+                console.log("Connection seems lost. Resetting client and retrying...");
+                this.client = null;
+                this.transport = null;
+
+                try {
+                    const client = await this.connect();
+                    result = await client.callTool({
+                        name,
+                        arguments: args,
+                    });
+                } catch (retryError) {
+                    console.error(`MCP Retry Error (${name}):`, retryError.message);
+                    throw retryError;
+                }
+            } else {
+                throw error;
+            }
+        }
 
         // Pillir Flow returns content[0].text as a JSON string
         if (result.content && result.content[0] && result.content[0].text) {
@@ -250,45 +282,111 @@ class PillirFlowClient {
     async getPRDetails(prNumber) {
         // Pad with leading zeros to 10 characters for SAP
         const paddedPR = prNumber.padStart(10, '0');
+        console.log(`Deep Fetching PR Details for: ${paddedPR}`);
 
-        const result = await this.callTool("execute_function", {
-            function_module_name: "BAPI_REQUISITION_GETDETAIL",
-            input_data: {
-                NUMBER: paddedPR
-            },
-            expected_output_structure: {
-                REQUISITION_ITEMS: [
-                    {
-                        PREQ_NO: "string",
-                        PREQ_ITEM: "string",
-                        MATERIAL: "string",
-                        PLANT: "string",
-                        QUANTITY: "string",
-                        SHORT_TEXT: "string"
-                    }
-                ],
-                RETURN: [
-                    {
-                        TYPE: "string",
-                        MESSAGE: "string"
-                    }
-                ]
-            }
-        });
+        try {
+            const result = await this.callTool("execute_function", {
+                function_module_name: "BAPI_REQUISITION_GETDETAIL",
+                input_data: {
+                    NUMBER: paddedPR
+                },
+                expected_output_structure: {
+                    REQUISITION_ITEMS: [
+                        {
+                            PREQ_NO: "string",
+                            PREQ_ITEM: "string",
+                            MATERIAL: "string",
+                            PLANT: "string",
+                            QUANTITY: "string",
+                            SHORT_TEXT: "string",
+                            FIXED_VEND: "string",
+                            DES_VENDOR: "string",
+                            ACCTASSCAT: "string"
+                        }
+                    ],
+                    REQUISITION_ACCOUNT_ASSIGNMENT: [
+                        {
+                            PREQ_ITEM: "string",
+                            SERIAL_NO: "string",
+                            GL_ACCOUNT: "string",
+                            COSTCENTER: "string"
+                        }
+                    ],
+                    RETURN: [
+                        {
+                            TYPE: "string",
+                            MESSAGE: "string"
+                        }
+                    ]
+                }
+            });
 
-        // Check for SAP-level errors in the result
-        if (result.type === "result" && result.result?.RETURN) {
-            const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
-            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
-            if (error) {
-                return {
-                    type: "error",
-                    result: error.MESSAGE
-                };
+            // If BAPI returns empty, try raw table read fallback
+            if (result.type === "result" && (!result.result?.REQUISITION_ITEMS || result.result.REQUISITION_ITEMS.length === 0)) {
+                console.log("BAPI returned empty items. Falling back to RFC_READ_TABLE on EBAN...");
+                const fallback = await this.callTool("execute_function", {
+                    function_module_name: "RFC_READ_TABLE",
+                    input_data: {
+                        QUERY_TABLE: "EBAN",
+                        DELIMITER: "|",
+                        OPTIONS: [
+                            { TEXT: `BANFN = '${paddedPR}'` }
+                        ],
+                        FIELDS: [
+                            { FIELDNAME: "MATNR" }, { FIELDNAME: "WERKS" }, { FIELDNAME: "BNFPO" },
+                            { FIELDNAME: "MENGE" }, { FIELDNAME: "TXZ01" }, { FIELDNAME: "KNTTP" },
+                            { FIELDNAME: "KOSTL" }, { FIELDNAME: "SAKTO" }, { FIELDNAME: "FLIEF" }
+                        ]
+                    },
+                    expected_output_structure: { DATA: [{ WA: "string" }] }
+                });
+
+                if (fallback.type === "result" && fallback.result?.DATA) {
+                    const items = fallback.result.DATA.map(row => {
+                        const parts = row.WA.split('|');
+                        return {
+                            PREQ_NO: paddedPR,
+                            PREQ_ITEM: parts[2]?.trim(),
+                            MATERIAL: parts[0]?.trim(),
+                            PLANT: parts[1]?.trim(),
+                            QUANTITY: parts[3]?.trim(),
+                            SHORT_TEXT: parts[4]?.trim() || "PR Item",
+                            ACCTASSCAT: parts[5]?.trim(),
+                            COSTCENTER: parts[6]?.trim(),
+                            GL_ACCOUNT: parts[7]?.trim(),
+                            FIXED_VEND: parts[8]?.trim()
+                        };
+                    });
+
+                    return {
+                        type: "result",
+                        result: {
+                            REQUISITION_ITEMS: items,
+                            REQUISITION_ACCOUNT_ASSIGNMENT: items.map(i => ({
+                                PREQ_ITEM: i.PREQ_ITEM,
+                                SERIAL_NO: "01",
+                                COSTCENTER: i.COSTCENTER,
+                                GL_ACCOUNT: i.GL_ACCOUNT
+                            }))
+                        }
+                    };
+                }
             }
+
+            // Check for SAP-level errors in the BAPI result
+            if (result.type === "result" && result.result?.RETURN) {
+                const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
+                const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
+                if (error) {
+                    return { type: "error", result: error.MESSAGE };
+                }
+            }
+
+            return result;
+        } catch (err) {
+            console.error("PR Fetch Error:", err);
+            throw err;
         }
-
-        return result;
     }
 
     async createPR(prData) {
@@ -396,13 +494,47 @@ class PillirFlowClient {
         const paddedPR = prNumber.padStart(10, '0');
         const paddedItem = prItem.padStart(5, '0');
 
-        console.log(`Creating PO from PR: ${paddedPR}, Item: ${paddedItem}`);
+        console.log(`Step 1: Fetching PR details for ${paddedPR} to get vendor...`);
+        const prDetail = await this.getPRDetails(paddedPR);
+
+        // Find if a vendor exists in the PR (Fixed Vendor or Desired Vendor)
+        let vendor = "0000000100"; // Updated default fallback based on user suggestion
+        if (prDetail.type === "result" && prDetail.result?.REQUISITION_ITEMS) {
+            const item = prDetail.result.REQUISITION_ITEMS.find(i => i.PREQ_ITEM === paddedItem);
+            if (item && item.FIXED_VEND && item.FIXED_VEND.trim() !== "") {
+                vendor = item.FIXED_VEND;
+                console.log(`Using fixed vendor from PR: ${vendor}`);
+            } else if (item && item.DES_VENDOR && item.DES_VENDOR.trim() !== "") {
+                vendor = item.DES_VENDOR;
+                console.log(`Using desired vendor from PR: ${vendor}`);
+            }
+        }
+
+        // Account Assignment details
+        let acctAssCat = "";
+        let costCenter = "";
+        let glAccount = "";
+        if (prDetail.type === "result" && prDetail.result) {
+            const item = prDetail.result.REQUISITION_ITEMS?.find(i => i.PREQ_ITEM === paddedItem);
+            if (item) {
+                acctAssCat = (item.ACCTASSCAT || "").toString().trim();
+            }
+
+            const accAss = prDetail.result.REQUISITION_ACCOUNT_ASSIGNMENT?.find(a => a.PREQ_ITEM === paddedItem);
+            if (accAss) {
+                costCenter = accAss.COSTCENTER ? accAss.COSTCENTER.padStart(10, '0') : "";
+                glAccount = accAss.GL_ACCOUNT ? accAss.GL_ACCOUNT.padStart(10, '0') : "";
+                console.log(`Found account assignment: Cost Center: ${costCenter}, GL: ${glAccount}`);
+            }
+        }
+
+        console.log(`Step 2: Creating PO from PR: ${paddedPR}, Item: ${paddedItem}, Vendor: ${vendor}, AcctAssCat: '${acctAssCat}'`);
 
         const payload = {
             POHEADER: {
                 COMP_CODE: "1000",
                 DOC_TYPE: "NB",
-                VENDOR: "0000100000", // Default vendor
+                VENDOR: vendor,
                 PURCH_ORG: "1000",
                 PUR_GROUP: "001",
                 CURRENCY: "USD"
@@ -419,7 +551,8 @@ class PillirFlowClient {
                 {
                     PO_ITEM: "00010",
                     PREQ_NO: paddedPR,
-                    PREQ_ITEM: paddedItem
+                    PREQ_ITEM: paddedItem,
+                    ACCTASSCAT: acctAssCat
                 }
             ],
             POITEMX: [
@@ -427,7 +560,8 @@ class PillirFlowClient {
                     PO_ITEM: "00010",
                     PO_ITEMX: "X",
                     PREQ_NO: "X",
-                    PREQ_ITEM: "X"
+                    PREQ_ITEM: "X",
+                    ACCTASSCAT: "X"
                 }
             ],
             POSCHEDULE: [
@@ -450,6 +584,24 @@ class PillirFlowClient {
             ]
         };
 
+        // Add account assignment if necessary
+        if (acctAssCat && acctAssCat !== " ") {
+            payload.POACCOUNT = [{
+                PO_ITEM: "00010",
+                SERIAL_NO: "01",
+                COSTCENTER: costCenter,
+                GL_ACCOUNT: glAccount
+            }];
+            payload.POACCOUNTX = [{
+                PO_ITEM: "00010",
+                SERIAL_NO: "01",
+                PO_ITEMX: "X",
+                SERIAL_NOX: "X",
+                COSTCENTER: costCenter ? "X" : "",
+                GL_ACCOUNT: glAccount ? "X" : ""
+            }];
+        }
+
         const result = await this.callTool("execute_function", {
             function_module_name: "BAPI_PO_CREATE1",
             input_data: payload,
@@ -466,11 +618,15 @@ class PillirFlowClient {
 
         if (result.type === "result" && result.result?.RETURN) {
             const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
-            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
-            if (error) {
+
+            // Log ALL SAP messages
+            returns.forEach(r => console.log(`SAP Response [${r.TYPE}]: ${r.MESSAGE}`));
+
+            const errors = returns.filter(r => r.TYPE === 'E' || r.TYPE === 'A');
+            if (errors.length > 0) {
                 return {
                     type: "error",
-                    result: error.MESSAGE
+                    result: errors.map(e => e.MESSAGE).join(' | ')
                 };
             }
 
@@ -480,6 +636,102 @@ class PillirFlowClient {
                 input_data: { WAIT: "X" },
                 expected_output_structure: { RETURN: {} }
             });
+        }
+
+        return result;
+    }
+
+    async getPODetails(poNumber) {
+        const paddedPO = poNumber.padStart(10, '0');
+        console.log(`Fetching PO details for: ${paddedPO}`);
+        const result = await this.callTool("execute_function", {
+            function_module_name: "BAPI_PO_GETDETAIL1",
+            input_data: {
+                PURCHASEORDER: paddedPO
+            },
+            expected_output_structure: {
+                POHEADER: {
+                    PO_NUMBER: "string",
+                    COMP_CODE: "string",
+                    DOC_TYPE: "string",
+                    VENDOR: "string",
+                    PURCH_ORG: "string",
+                    PUR_GROUP: "string"
+                },
+                POITEM: [
+                    {
+                        PO_ITEM: "string",
+                        MATERIAL: "string",
+                        SHORT_TEXT: "string",
+                        PLANT: "string",
+                        QUANTITY: "string",
+                        NET_PRICE: "string"
+                    }
+                ],
+                RETURN: [
+                    {
+                        TYPE: "string",
+                        MESSAGE: "string"
+                    }
+                ]
+            }
+        });
+
+        // Check for SAP-level errors in the result
+        if (result.type === "result" && result.result?.RETURN) {
+            const returns = Array.isArray(result.result.RETURN) ? result.result.RETURN : [result.result.RETURN];
+            const error = returns.find(r => r.TYPE === 'E' || r.TYPE === 'A');
+            if (error) {
+                return {
+                    type: "error",
+                    result: error.MESSAGE
+                };
+            }
+        }
+
+        return result;
+    }
+
+    async listPOsByPlant(plant) {
+        console.log(`Listing POs for plant: ${plant}`);
+        const result = await this.callTool("execute_function", {
+            function_module_name: "RFC_READ_TABLE",
+            input_data: {
+                QUERY_TABLE: "EKPO",
+                DELIMITER: "|",
+                OPTIONS: [
+                    { TEXT: `WERKS = '${plant.toUpperCase().trim()}'` }
+                ],
+                FIELDS: [
+                    { FIELDNAME: "EBELN" }, // PO Number
+                    { FIELDNAME: "EBELP" }, // Item Number
+                    { FIELDNAME: "MATNR" }, // Material
+                    { FIELDNAME: "MENGE" }, // Quantity
+                    { FIELDNAME: "TXZ01" }, // Short Text
+                    { FIELDNAME: "AEDAT" }  // Create Date
+                ],
+                ROWSKIPS: 0,
+                ROWCOUNT: 50 // Limit to avoid long lists
+            },
+            expected_output_structure: {
+                DATA: [
+                    { WA: "string" }
+                ]
+            }
+        });
+
+        if (result.type === "result" && result.result?.DATA) {
+            result.result = result.result.DATA.map(row => {
+                const parts = row.WA.split('|');
+                return {
+                    EBELN: parts[0]?.trim(),
+                    EBELP: parts[1]?.trim(),
+                    MATNR: parts[2]?.trim(),
+                    MENGE: parts[3]?.trim(),
+                    TXZ01: parts[4]?.trim(),
+                    AEDAT: parts[5]?.trim()
+                };
+            }).filter(po => po.EBELN);
         }
 
         return result;
